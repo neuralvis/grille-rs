@@ -726,6 +726,7 @@ dependencies = [
  "actix-web",
  "env_logger",
  "log",
+ "url",
 ]
 
 [[package]]
