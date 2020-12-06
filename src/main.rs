@@ -1,10 +1,9 @@
 extern crate log;
 use std::net::ToSocketAddrs;
 
+use actix_cors::Cors;
 use actix_web::client::Client;
-use actix_web::{
-    http, middleware, web, App, Error, HttpRequest, HttpResponse, HttpServer
-};
+use actix_web::{http, middleware, web, App, Error, HttpRequest, HttpResponse, HttpServer};
 
 use env_logger;
 use url::Url;
@@ -27,23 +26,13 @@ async fn forward(
     new_url.set_query(req.uri().query());
 
     log::debug!("Preparing a forward request with url {}", new_url.as_str());
-    let req = client
-        .get(new_url.as_str())
-        // set the headers to allow CORS
-        .header(http::header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
-        // set preflight response to indicate permitted headers
-        .header(http::header::ACCESS_CONTROL_ALLOW_HEADERS, "content-type")
-        .header(http::header::CONTENT_TYPE, "application/json")
-        // only allow GET requests to pass through
-        .header(http::header::ACCESS_CONTROL_ALLOW_METHODS, "GET")
-        .no_decompress();
+    let req = client.get(new_url.as_str()).no_decompress();
 
     log::debug!("Soliciting response:");
     let mut res = req.send().await.map_err(Error::from)?;
     let mut client_resp = HttpResponse::build(res.status());
     log::debug!("Disconnecting from server");
-    // Remove `Connection` as per
-    // https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Connection#Directives
+    // copy headers
     for (header_name, header_value) in res.headers().iter() {
         client_resp.header(header_name.clone(), header_value.clone());
     }
@@ -52,7 +41,7 @@ async fn forward(
 
     Ok(client_resp
         .content_type("application/json")
-        .body(res.body().limit(1_024_000).await?))
+        .body(res.body().limit(2_048_000).await?))
 }
 
 #[actix_web::main]
@@ -84,9 +73,19 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         App::new()
+            //Cors stuff
+            .wrap(
+                Cors::default()
+                    .allow_any_origin()
+                    .allowed_methods(vec!["GET"])
+                    .allowed_headers(vec![http::header::AUTHORIZATION, http::header::ACCEPT])
+                    .allowed_header(http::header::CONTENT_TYPE)
+                    .supports_credentials()
+                    .max_age(3600),
+            )
             // enable logging
             .wrap(middleware::Logger::default())
-            .app_data(web::PayloadConfig::new(1_024__000))
+            .app_data(web::PayloadConfig::new(2_048_000))
             .data(Client::new())
             .data(forward_url.clone())
             // all default routes to forward() fn
