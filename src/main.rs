@@ -7,7 +7,7 @@ use actix_web::{
     dev::ServiceRequest, http, middleware, web, App, Error, HttpRequest, HttpResponse, HttpServer,
 };
 
-use env_logger;
+use env_logger::{Builder, Target};
 use url::Url;
 
 use actix_web_httpauth::extractors::bearer::{BearerAuth, Config};
@@ -74,7 +74,13 @@ async fn forward(
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     std::env::set_var("RUST_LOG", "info,actix_web=error");
-    env_logger::init();
+    // we can't use env_logger::init();
+    // because we need to log to stdout instead
+    // of stderr, so we can redirect to a file
+    // on the commandline
+    let mut builder = Builder::from_default_env();
+    builder.target(Target::Stdout).init();
+    
     log::debug!("Starting up!");
 
     // define address:port where the server will listen
