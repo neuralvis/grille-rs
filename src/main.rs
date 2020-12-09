@@ -3,13 +3,40 @@ use std::net::ToSocketAddrs;
 
 use actix_cors::Cors;
 use actix_web::client::Client;
-use actix_web::{http, middleware, web, App, Error, HttpRequest, HttpResponse, HttpServer};
+use actix_web::{
+    dev::ServiceRequest, http, middleware, web, App, Error, HttpRequest, HttpResponse, HttpServer,
+};
 
 use env_logger;
 use url::Url;
 
+use actix_web_httpauth::extractors::bearer::{BearerAuth, Config};
+use actix_web_httpauth::extractors::AuthenticationError;
+use actix_web_httpauth::middleware::HttpAuthentication;
+
+mod auth;
+mod errors;
+
+async fn validator(req: ServiceRequest, credentials: BearerAuth) -> Result<ServiceRequest, Error> {
+    let config = req
+        .app_data::<Config>()
+        .map(|data| data.clone())
+        .unwrap_or_else(Default::default);
+    match auth::validate_token(credentials.token()).await {
+        Ok(res) => {
+            if res == true {
+                Ok(req)
+            } else {
+                Err(AuthenticationError::from(config).into())
+            }
+        }
+        Err(_) => Err(AuthenticationError::from(config).into()),
+    }
+}
+
 /* TODO
  * - Incorporate clap - commandline parser
+ * - Add token-base authentication
 */
 
 // this is our handler
@@ -72,8 +99,12 @@ async fn main() -> std::io::Result<()> {
     log::debug!("Forwarding URL: {:?}", forward_url.as_str());
 
     HttpServer::new(move || {
+        // add oauth authentication
+        let authenticator = HttpAuthentication::bearer(validator);
         App::new()
-            //Cors stuff
+            // Authentication validator
+            .wrap(authenticator)
+            // Cors stuff
             .wrap(
                 Cors::default()
                     .allow_any_origin()
