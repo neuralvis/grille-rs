@@ -45,7 +45,7 @@ async fn forward(
     client: web::Data<Client>,
     url: web::Data<Url>,
 ) -> Result<HttpResponse, Error> {
-    log::debug!("REQ: {:?}", req);
+    log::info!("{}: {:?}", req.method().as_str(), req.uri());
 
     log::debug!("Received request, preparing a forwarding url");
     let mut new_url: url::Url = url.get_ref().clone();
