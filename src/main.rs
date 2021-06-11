@@ -16,7 +16,7 @@ mod handlers;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    std::env::set_var("RUST_LOG", "info,actix_web=error");
+    std::env::set_var("RUST_LOG", "debug,actix_web=error,actix_server=error");
     // we can't use env_logger::init();
     // because we need to log to stdout instead
     // of stderr, so we can redirect to a file
