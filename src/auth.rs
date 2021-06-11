@@ -1,13 +1,38 @@
 use crate::errors::ServiceError;
 use alcoholic_jwt::{token_kid, validate, Validation, JWKS};
 use serde::{Deserialize, Serialize};
-use std::error::Error;
+use std;
+
+use actix_web::dev::ServiceRequest;
+
+use actix_web_httpauth::extractors::bearer::{BearerAuth, Config};
+use actix_web_httpauth::extractors::AuthenticationError;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Claims {
     sub: String,
     company: String,
     exp: usize,
+}
+
+pub async fn validator(
+    req: ServiceRequest,
+    credentials: BearerAuth,
+) -> Result<ServiceRequest, actix_web::Error> {
+    let config = req
+        .app_data::<Config>()
+        .map(|data| data.clone())
+        .unwrap_or_else(Default::default);
+    match validate_token(credentials.token()).await {
+        Ok(res) => {
+            if res == true {
+                Ok(req)
+            } else {
+                Err(AuthenticationError::from(config).into())
+            }
+        }
+        Err(_) => Err(AuthenticationError::from(config).into()),
+    }
 }
 
 pub async fn validate_token(token: &str) -> Result<bool, ServiceError> {
@@ -17,7 +42,7 @@ pub async fn validate_token(token: &str) -> Result<bool, ServiceError> {
     let jwks = fetch_jwks(&format!(
         "{}{}",
         authority.as_str(),
-        ".well-known/jwks.json"
+        "/.well-known/jwks.json"
     ))
     .await
     .unwrap();
@@ -37,7 +62,7 @@ pub async fn validate_token(token: &str) -> Result<bool, ServiceError> {
     Ok(res.is_ok())
 }
 
-async fn fetch_jwks(uri: &str) -> Result<JWKS, Box<dyn Error>> {
+async fn fetch_jwks(uri: &str) -> Result<JWKS, Box<dyn std::error::Error>> {
     let val = reqwest::get(uri).await?.json::<JWKS>().await;
     // let val = async {res.json::<JWKS>().await};
     return Ok(val.unwrap());

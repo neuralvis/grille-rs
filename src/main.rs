@@ -3,84 +3,27 @@ use std::net::ToSocketAddrs;
 
 use actix_cors::Cors;
 use actix_web::client::Client;
-use actix_web::{
-    dev::ServiceRequest, http, middleware, web, App, Error, HttpRequest, HttpResponse, HttpServer,
-};
+use actix_web::{http, middleware, web, App, HttpServer};
 
 use env_logger::{Builder, Target};
 use url::Url;
 
-use actix_web_httpauth::extractors::bearer::{BearerAuth, Config};
-use actix_web_httpauth::extractors::AuthenticationError;
 use actix_web_httpauth::middleware::HttpAuthentication;
 
 mod auth;
 mod errors;
-
-async fn validator(req: ServiceRequest, credentials: BearerAuth) -> Result<ServiceRequest, Error> {
-    let config = req
-        .app_data::<Config>()
-        .map(|data| data.clone())
-        .unwrap_or_else(Default::default);
-    match auth::validate_token(credentials.token()).await {
-        Ok(res) => {
-            if res == true {
-                Ok(req)
-            } else {
-                Err(AuthenticationError::from(config).into())
-            }
-        }
-        Err(_) => Err(AuthenticationError::from(config).into()),
-    }
-}
-
-/* TODO
- * - Incorporate clap - commandline parser
- * - Add token-base authentication
-*/
-
-// this is our handler
-async fn forward(
-    req: HttpRequest,
-    client: web::Data<Client>,
-    url: web::Data<Url>,
-) -> Result<HttpResponse, Error> {
-    log::info!("{}: {:?}", req.method().as_str(), req.uri());
-
-    log::debug!("Received request, preparing a forwarding url");
-    let mut new_url: url::Url = url.get_ref().clone();
-    new_url.set_path(req.uri().path());
-    new_url.set_query(req.uri().query());
-
-    log::debug!("Preparing a forward request with url {}", new_url.as_str());
-    let req = client.get(new_url.as_str()).no_decompress();
-
-    log::debug!("Soliciting response:");
-    let mut res = req.send().await.map_err(Error::from)?;
-    let mut client_resp = HttpResponse::build(res.status());
-    log::debug!("Disconnecting from server");
-    // copy headers
-    for (header_name, header_value) in res.headers().iter() {
-        client_resp.header(header_name.clone(), header_value.clone());
-    }
-
-    // println!("Response: {}", res.body().await?);
-
-    Ok(client_resp
-        .content_type("application/json")
-        .body(res.body().limit(2_048_000).await?))
-}
+mod handlers;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    std::env::set_var("RUST_LOG", "info,actix_web=error");
+    std::env::set_var("RUST_LOG", "debug,actix_web=error,actix_server=error");
     // we can't use env_logger::init();
     // because we need to log to stdout instead
     // of stderr, so we can redirect to a file
     // on the commandline
     let mut builder = Builder::from_default_env();
     builder.target(Target::Stdout).init();
-    
+
     log::debug!("Starting up!");
 
     // define address:port where the server will listen
@@ -106,7 +49,7 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         // add oauth authentication
-        let authenticator = HttpAuthentication::bearer(validator);
+        let authenticator = HttpAuthentication::bearer(auth::validator);
         App::new()
             // Authentication validator
             .wrap(authenticator)
@@ -126,7 +69,7 @@ async fn main() -> std::io::Result<()> {
             .data(Client::new())
             .data(forward_url.clone())
             // all default routes to forward() fn
-            .default_service(web::route().to(forward))
+            .default_service(web::route().to(handlers::forward))
     })
     .bind((server_addr, server_port))?
     .run()
